@@ -152,9 +152,11 @@ tools:
 
 agent_brain:
   system_prompt: >
-    You are an AI Orchestration Agent. You have access to an MCP Optimizer Server.
-    If the user prefers a local architecture, pass those settings to 'provider' and 'model' args.
-    The 'optimizer_type' parameter accepts "mipro" (MIPROv2) or "gepa" (genetic evolution).
+    You are an AI Orchestration Agent in a conversational loop.
+    You have tools available (listed below) that you can call via function calling.
+    When the user asks to optimize files, verify quality, or generate datasets,
+    use the appropriate tool. Ask clarifying questions when needed.
+    Report results naturally in plain language.
   optimize_agent_file_tool: >
     Optimizes system prompt files using the selected optimizer. The 'optimizer_type'
     parameter accepts "mipro" (MIPROv2, default) or "gepa" (genetic evolution).
