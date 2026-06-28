@@ -1,4 +1,7 @@
 import asyncio
+import subprocess
+import requests
+from openai import BadRequestError
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langchain_core.tools import tool
@@ -31,6 +34,62 @@ def _build_system_prompt() -> str:
             lines.append(f"  {purpose}")
 
     return base + "\n".join(lines)
+
+
+def _check_lm_studio_ready(api_base: str, model: str) -> bool:
+    """Check LM Studio has the expected model loaded. If none loaded, try `lms load`."""
+    models_url = api_base.rstrip("/") + "/models"
+    try:
+        resp = requests.get(models_url, timeout=5)
+        resp.raise_for_status()
+        models = resp.json()
+    except requests.ConnectionError:
+        print(f"[Error] Cannot reach LM Studio at {api_base}. Is it running?")
+        return False
+    except Exception as e:
+        print(f"[Error] Failed to query LM Studio models: {e}")
+        return False
+
+    loaded_ids = [m.get("id", "") for m in models.get("data", []) if m.get("id")]
+    if not loaded_ids:
+        print(f"[Warning] LM Studio has no models loaded. Attempting `lms load {model}` ...")
+        try:
+            subprocess.run(["lms", "load", model], check=True, timeout=60)
+            print("[Info] Model load initiated. Retrying availability check...")
+            import time
+            time.sleep(3)
+            resp2 = requests.get(models_url, timeout=5)
+            resp2.raise_for_status()
+            models2 = resp2.json()
+            loaded_ids = [m.get("id", "") for m in models2.get("data", []) if m.get("id")]
+            if loaded_ids:
+                print(f"[Info] Model '{model}' loaded successfully.")
+                return True
+            else:
+                print(f"[Error] `lms load` completed but model still not available.")
+                return False
+        except FileNotFoundError:
+            print("[Error] `lms` CLI not found. Install it or load a model in the LM Studio UI.")
+            return False
+        except subprocess.TimeoutExpired:
+            print("[Error] `lms load` timed out after 60s.")
+            return False
+        except subprocess.CalledProcessError as e:
+            print(f"[Error] `lms load` failed (exit {e.returncode}). Load the model manually in LM Studio.")
+            return False
+
+    if model and model not in loaded_ids:
+        print(f"[Warning] Configured model '{model}' is not in LM Studio's loaded list: {loaded_ids}")
+        print(f"[Info] Attempting `lms load {model}` ...")
+        try:
+            subprocess.run(["lms", "load", model], check=True, timeout=60)
+            print("[Info] Model load initiated.")
+            return True
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+            print(f"[Warning] Could not auto-load model. Available models: {loaded_ids}")
+            return False
+
+    return True
 
 
 class AgenticOrchestrator:
@@ -145,9 +204,16 @@ class AgenticOrchestrator:
                 tools_list = self.get_tools()
 
                 brain_cfg = ConfigLoader.get("agent_brain")
+                model_name = brain_cfg["model"].strip()
+                api_base = brain_cfg["api_base"].rstrip("/")
+
+                if not _check_lm_studio_ready(api_base, model_name):
+                    print("[Error] Aborting. Requires a loaded model in LM Studio.")
+                    return
+
                 brain_llm = ChatOpenAI(
-                    model=brain_cfg["model"],
-                    base_url=brain_cfg["api_base"],
+                    model=model_name,
+                    base_url=api_base,
                     api_key=brain_cfg["api_key"],
                     temperature=brain_cfg["temperature"]
                 ).bind_tools(tools_list)
@@ -160,7 +226,12 @@ class AgenticOrchestrator:
                 print(f"\n[User] Request: {user_query}")
                 print("[Analyze] Agent is analyzing request and choosing a strategy...")
 
-                ai_analysis = brain_llm.invoke(messages)
+                try:
+                    ai_analysis = brain_llm.invoke(messages)
+                except BadRequestError as e:
+                    print(f"[Error] LM Studio request failed: {e}")
+                    print("[Error] No model is loaded in LM Studio. Load a model and try again.")
+                    return
 
                 if ai_analysis.tool_calls:
                     for call in ai_analysis.tool_calls:

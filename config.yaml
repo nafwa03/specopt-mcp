@@ -70,7 +70,7 @@ providers:
     max_tokens: 1024
 
 agent_brain:
-  model: "mistralai/mistral-7b-instruct-v0.3      "
+  model: "mistralai/mistral-7b-instruct-v0.3"
   api_base: "http://localhost:1234/v1"
   api_key: "not-needed"
   temperature: 0.1
