@@ -42,7 +42,7 @@ specopt-mcp/
 │   └── dataset_metric.md
 │
 ├── agents/
-│   └── writer.md              # Sample agent prompt target file
+│   └── writer.md              # Sample agent prompt target file (for use with agent_brain.py standalone agent)
 │
 ├── tests/
 │   ├── conftest.py            # MockLM for deterministic testing
