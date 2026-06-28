@@ -243,6 +243,42 @@ def universal_llm_metric(gold_example, agent_prediction, trace=None) -> float:
 # DATASET UTILITIES
 # =====================================================================
 
+def _try_heal_and_parse(raw_output: str):
+    """Attempt to heal truncated JSON and parse it, falling back to regex extraction."""
+    healed = raw_output
+    if healed.count("[") > healed.count("]"):
+        depth = 0
+        in_string = False
+        i = 0
+        while i < len(healed):
+            c = healed[i]
+            if c == '\\' and i + 1 < len(healed):
+                i += 2
+                continue
+            if c == '"':
+                in_string = not in_string
+            elif not in_string:
+                if c == '[':
+                    depth += 1
+                elif c == ']':
+                    depth -= 1
+            i += 1
+        if depth > 0:
+            healed = healed.rstrip() + "]" * depth
+    if healed != raw_output:
+        try:
+            return json.loads(healed)
+        except Exception:
+            pass
+    array_match = re.search(r"(\[\s*\{[\s\S]*?\}\s*\])", raw_output)
+    if array_match:
+        try:
+            return ast.literal_eval(array_match.group(1))
+        except Exception:
+            pass
+    return []
+
+
 def extract_and_load_dataset(raw_output: str) -> list:
     """Parse LLM JSON output into a list of dspy.Example objects with fallback handling."""
     json_clean = re.sub(r"^```json|```$", "", raw_output, flags=re.MULTILINE).strip()
@@ -253,16 +289,23 @@ def extract_and_load_dataset(raw_output: str) -> list:
         try:
             raw_json_data = ast.literal_eval(json_clean)
         except Exception:
-            array_match = re.search(r"(\[\s*\{[\s\S]*?\}\s*\])", raw_output)
-            if array_match:
-                try:
-                    raw_json_data = ast.literal_eval(array_match.group(1))
-                except Exception:
-                    raw_json_data = []
-            else:
-                raw_json_data = []
+            raw_json_data = _try_heal_and_parse(raw_output)
+
+    # Handle object-wrapped arrays: {"scenarios": [...]} or {"data": [...]}
+    if isinstance(raw_json_data, dict):
+        for val in raw_json_data.values():
+            if isinstance(val, list):
+                raw_json_data = val
+                break
+
+    # Normalize gold_response from list to string (model sometimes returns arrays)
+    if isinstance(raw_json_data, list):
+        for item in raw_json_data:
+            if isinstance(item, dict) and isinstance(item.get("gold_response"), list):
+                item["gold_response"] = "\n".join(item["gold_response"])
 
     if not raw_json_data or not isinstance(raw_json_data, list):
+        logger.warning("Failed to parse LM dataset output. Raw response (first 500 chars): %s", raw_output[:500])
         raw_json_data = [
             {"input_context": "Write a short creative stanza.",
              "gold_response": "The gears turn quietly inside the machine."},
@@ -336,16 +379,12 @@ def generate_dataset_via_lm(
 
 def _generate_single(lm_client, agent_prompt: str, num_examples: int, doc_text: str = "") -> list:
     """Single-shot dataset generation from a prompt + optional doc text."""
-    doc_block = f"\nReference documentation:\n{doc_text}\n" if doc_text else ""
-    prompt = (
-        f"Generate exactly {num_examples} realistic test scenarios for the following agent prompt.\n"
-        f"\nAGENT SYSTEM PROMPT:\n{agent_prompt}\n"
-        f"{doc_block}"
-        f"\nFor each scenario, provide:\n"
-        f'- "input_context": A realistic user query the agent might receive\n'
-        f'- "gold_response": The correct answer the agent should return\n'
-        f"\nOutput ONLY a raw JSON array of objects with keys 'input_context' and 'gold_response'. "
-         f"No markdown, no emojis, no explanations.\n\nJSON ARRAY:"
+    doc_block = f"Reference documentation:\n{doc_text}\n" if doc_text else ""
+    template = PromptLoader.get("signatures", "DatasetGeneratorSignature")
+    prompt = template.format(
+        num_examples=num_examples,
+        agent_prompt=agent_prompt,
+        doc_block=doc_block,
     )
     raw = lm_client(prompt=prompt)
     raw_text = raw[0] if isinstance(raw, list) else str(raw)
@@ -1476,6 +1515,29 @@ def run_section_optimization_pipeline(agents_markdown_path: str, provider: str =
     try:
         if lm_client is None:
             lm_client = _get_lm_client(provider, model, registry)
+
+        # Generate and save a training dataset from the full file body
+        try:
+            with open(agents_markdown_path, "r", encoding="utf-8") as f:
+                raw_content = f.read()
+            frontmatter_match = re.match(r"^(---\s*\n[\s\S]*?\n---\s*\n)", raw_content)
+            prompt_body = raw_content[frontmatter_match.end():] if frontmatter_match else raw_content
+            current_instructions = prompt_body.strip()
+
+            trainset = generate_dataset_via_lm(
+                lm_client=lm_client,
+                agent_prompt=current_instructions,
+                num_examples=ConfigLoader.get("pipeline", "dataset", "num_examples"),
+            )
+
+            ext_suffix = ConfigLoader.get("file_suffixes", "generated_dataset")
+            dataset_path = os.path.splitext(agents_markdown_path)[0] + ext_suffix
+            output_text = convert_dataset_format(trainset, fmt="json")
+            with open(dataset_path, "w", encoding="utf-8") as f:
+                f.write(output_text)
+            logger.info("Generated dataset saved to %s (%d examples)", dataset_path, len(trainset))
+        except Exception as e:
+            logger.warning("Dataset generation/save failed (non-fatal): %s", e)
 
         sections = extract_sections_from_markdown(agents_markdown_path)
         logger.info(f"Extracted {len(sections)} sections from {agents_markdown_path}")

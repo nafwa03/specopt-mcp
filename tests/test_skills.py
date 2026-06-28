@@ -274,3 +274,54 @@ def test_verifier_detects_overfitting(
 
     assert result["verdict"] == "OVERFIT"
     assert result["generalization_delta"] < 0
+
+
+# =====================================================================
+# SKILL MD LOADER TESTS
+# =====================================================================
+
+def test_skill_md_loader_discovers_new_files():
+    from core.skill_md_loader import SkillMDLoader
+    SkillMDLoader.clear_cache()
+    skills = SkillMDLoader.load_all()
+    assert "surgical_file_modifier" in skills
+    assert "model_connector" in skills
+    assert "dataset_logger" in skills
+
+
+def test_skill_md_loader_parses_frontmatter():
+    from core.skill_md_loader import SkillMDLoader
+    SkillMDLoader.clear_cache()
+    skills = SkillMDLoader.load_all()
+    fm = skills["surgical_file_modifier"]["frontmatter"]
+    assert fm["name"] == "surgical_file_modifier"
+    assert "inputs" in fm
+    assert "outputs" in fm
+
+    body = skills["model_connector"]["body"]
+    assert "## Purpose" in body
+    assert "## Behavior" in body
+
+
+def test_skill_md_loader_get_by_name():
+    from core.skill_md_loader import SkillMDLoader
+    SkillMDLoader.clear_cache()
+    skill = SkillMDLoader.get("dataset_logger")
+    assert skill is not None
+    assert skill["name"] == "dataset_logger"
+
+
+def test_skill_md_loader_returns_none_for_missing():
+    from core.skill_md_loader import SkillMDLoader
+    SkillMDLoader.clear_cache()
+    assert SkillMDLoader.get("nonexistent_skill") is None
+
+
+def test_registry_exposes_md_manifests():
+    from core.skills import SkillRegistry
+    registry = SkillRegistry()
+    manifests = registry.list_md_manifests()
+    names = [m["name"] for m in manifests]
+    assert "surgical_file_modifier" in names
+    assert "model_connector" in names
+    assert "dataset_logger" in names

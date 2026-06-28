@@ -6,8 +6,31 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from core.prompt_loader import PromptLoader
 from core.config_loader import ConfigLoader
+from core.skill_md_loader import SkillMDLoader
 
-AGENT_SYSTEM_PROMPT = PromptLoader.get("agent_brain", "system_prompt")
+def _build_system_prompt() -> str:
+    base = PromptLoader.get("agent_brain", "system_prompt")
+    md_skills = SkillMDLoader.load_all()
+    if not md_skills:
+        return base
+
+    lines = ["\n\nAvailable markdown skill definitions:"]
+    for name, data in md_skills.items():
+        fm = data["frontmatter"]
+        in_list = ", ".join(
+            f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("inputs", [])
+        )
+        out_list = ", ".join(
+            f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("outputs", [])
+        )
+        purpose = ""
+        if "## Purpose" in data["body"]:
+            purpose = data["body"].split("## Purpose")[-1].split("##")[0].strip().split("\n")[0]
+        lines.append(f"- {name}: inputs({in_list}) -> outputs({out_list})")
+        if purpose:
+            lines.append(f"  {purpose}")
+
+    return base + "\n".join(lines)
 
 
 class AgenticOrchestrator:
@@ -23,107 +46,89 @@ class AgenticOrchestrator:
         """Builds LangChain tool bindings linked directly to this orchestrator instance context."""
 
         @tool(description=PromptLoader.get('agent_brain', 'optimize_agent_file_tool'))
-        def optimize_agent_file_tool(agent_markdown_path: str, provider: str = "lm-studio", model: str = "",
-                                     optimizer_type: str = "mipro", document_dir: str = "") -> str:
+        async def optimize_agent_file_tool(agent_markdown_path: str, provider: str = "lm-studio", model: str = "",
+                                           optimizer_type: str = "mipro", document_dir: str = "") -> str:
             print(f"[Agent Action] Invoking optimize_agent_file_tool for: {agent_markdown_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="optimize_agent_file",
-                    arguments={
-                        "agent_markdown_path": agent_markdown_path,
-                        "provider": provider,
-                        "model": model,
-                        "optimizer_type": optimizer_type,
-                        "document_dir": document_dir,
-                    }
-                )
+            response = await self.mcp_session.call_tool(
+                name="optimize_agent_file",
+                arguments={
+                    "agent_markdown_path": agent_markdown_path,
+                    "provider": provider,
+                    "model": model,
+                    "optimizer_type": optimizer_type,
+                    "document_dir": document_dir,
+                }
             )
-            return response.content.text
+            return response.content[0].text
 
         @tool(description=PromptLoader.get('agent_brain', 'optimize_skill_logic_tool'))
-        def optimize_skill_logic_tool(skill_file_path: str, provider: str = "lm-studio", model: str = "",
-                                      optimizer_type: str = "mipro") -> str:
+        async def optimize_skill_logic_tool(skill_file_path: str, provider: str = "lm-studio", model: str = "",
+                                            optimizer_type: str = "mipro") -> str:
             print(f"[Agent Action] Invoking optimize_skill_logic_tool for: {skill_file_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="optimize_skill_logic",
-                    arguments={
-                        "skill_file_path": skill_file_path,
-                        "provider": provider,
-                        "model": model,
-                        "optimizer_type": optimizer_type,
-                    }
-                )
+            response = await self.mcp_session.call_tool(
+                name="optimize_skill_logic",
+                arguments={
+                    "skill_file_path": skill_file_path,
+                    "provider": provider,
+                    "model": model,
+                    "optimizer_type": optimizer_type,
+                }
             )
-            return response.content.text
+            return response.content[0].text
 
         @tool(description=PromptLoader.get('agent_brain', 'optimize_entire_skill_directory_tool'))
-        def optimize_entire_skill_directory_tool(directory_path: str, provider: str = "lm-studio",
-                                                 model: str = "") -> str:
+        async def optimize_entire_skill_directory_tool(directory_path: str, provider: str = "lm-studio",
+                                                       model: str = "") -> str:
             print(f"[Agent Action] Invoking optimize_entire_skill_directory_tool for: {directory_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="optimize_entire_skill_directory",
-                    arguments={"directory_path": directory_path, "provider": provider, "model": model}
-                )
+            response = await self.mcp_session.call_tool(
+                name="optimize_entire_skill_directory",
+                arguments={"directory_path": directory_path, "provider": provider, "model": model}
             )
-            return response.content.text
+            return response.content[0].text
 
         @tool(description=PromptLoader.get('agent_brain', 'verify_prompt_generalization_tool'))
-        def verify_prompt_generalization_tool(agent_markdown_path: str, provider: str = "lm-studio",
-                                              model: str = "") -> str:
+        async def verify_prompt_generalization_tool(agent_markdown_path: str, provider: str = "lm-studio",
+                                                    model: str = "") -> str:
             print(f"[Agent Action] Invoking QA Verification Tool for: {agent_markdown_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="verify_prompt_generalization",
-                    arguments={"agent_markdown_path": agent_markdown_path, "provider": provider, "model": model}
-                )
+            response = await self.mcp_session.call_tool(
+                name="verify_prompt_generalization",
+                arguments={"agent_markdown_path": agent_markdown_path, "provider": provider, "model": model}
             )
-            return response.content.text
+            return response.content[0].text
 
         @tool(description=PromptLoader.get('agent_brain', 'generate_training_dataset_tool'))
-        def generate_training_dataset_tool(agent_markdown_path: str, provider: str = "lm-studio",
-                                           model: str = "", num_examples: int = 5,
-                                           document_dir: str = "") -> str:
+        async def generate_training_dataset_tool(agent_markdown_path: str, provider: str = "lm-studio",
+                                                 model: str = "", num_examples: int = 5,
+                                                 document_dir: str = "") -> str:
             print(f"[Agent Action] Generating training dataset from: {agent_markdown_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="generate_training_dataset",
-                    arguments={
-                        "agent_markdown_path": agent_markdown_path,
-                        "provider": provider,
-                        "model": model,
-                        "num_examples": num_examples,
-                        "document_dir": document_dir,
-                    }
-                )
+            response = await self.mcp_session.call_tool(
+                name="generate_training_dataset",
+                arguments={
+                    "agent_markdown_path": agent_markdown_path,
+                    "provider": provider,
+                    "model": model,
+                    "num_examples": num_examples,
+                    "document_dir": document_dir,
+                }
             )
-            return response.content.text
+            return response.content[0].text
 
         @tool(description=PromptLoader.get('agent_brain', 'validate_generated_dataset_tool'))
-        def validate_generated_dataset_tool(dataset_path: str, agent_markdown_path: str,
-                                            provider: str = "lm-studio", model: str = "",
-                                            document_dir: str = "") -> str:
+        async def validate_generated_dataset_tool(dataset_path: str, agent_markdown_path: str,
+                                                  provider: str = "lm-studio", model: str = "",
+                                                  document_dir: str = "") -> str:
             print(f"[Agent Action] Validating dataset: {dataset_path}")
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(
-                self.mcp_session.call_tool(
-                    name="validate_generated_dataset",
-                    arguments={
-                        "dataset_path": dataset_path,
-                        "agent_markdown_path": agent_markdown_path,
-                        "provider": provider,
-                        "model": model,
-                        "document_dir": document_dir,
-                    }
-                )
+            response = await self.mcp_session.call_tool(
+                name="validate_generated_dataset",
+                arguments={
+                    "dataset_path": dataset_path,
+                    "agent_markdown_path": agent_markdown_path,
+                    "provider": provider,
+                    "model": model,
+                    "document_dir": document_dir,
+                }
             )
-            return response.content.text
+            return response.content[0].text
 
         return [optimize_agent_file_tool, optimize_skill_logic_tool, optimize_entire_skill_directory_tool, verify_prompt_generalization_tool, generate_training_dataset_tool, validate_generated_dataset_tool]
 
@@ -142,13 +147,13 @@ class AgenticOrchestrator:
                 brain_cfg = ConfigLoader.get("agent_brain")
                 brain_llm = ChatOpenAI(
                     model=brain_cfg["model"],
-                    api_base=brain_cfg["api_base"],
+                    base_url=brain_cfg["api_base"],
                     api_key=brain_cfg["api_key"],
                     temperature=brain_cfg["temperature"]
                 ).bind_tools(tools_list)
 
                 messages = [
-                    SystemMessage(content=AGENT_SYSTEM_PROMPT),
+                    SystemMessage(content=_build_system_prompt()),
                     HumanMessage(content=user_query)
                 ]
 
@@ -163,7 +168,7 @@ class AgenticOrchestrator:
                         matched_tool = next((t for t in tools_list if t.name == call['name']), None)
                         if matched_tool:
                             print(f"\n[Decision] Selected Tool: '{call['name']}'")
-                            result = matched_tool.invoke(call['args'])
+                            result = await matched_tool.ainvoke(call['args'])
                             print(f"\n[Result] Pipeline Response:\n{result}")
                 else:
                     print("[Error] Agent did not trigger a tool tool call. Response:", ai_analysis.content)
@@ -179,5 +184,7 @@ if __name__ == '__main__':
         "Immediately after the optimization pass finishes, execute our QA validation tool on the file "
         "to verify if the changes genuinely improved our accuracy parameters on unseen test data."
     )
+
+    asyncio.run(orchestrator.run_reasoning_loop(task))
 
 

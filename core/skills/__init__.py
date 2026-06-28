@@ -1,6 +1,7 @@
-from typing import Dict
+from typing import Dict, List
 from core.base_skill import BaseSkill
 from core.prompt_loader import PromptLoader
+from core.skill_md_loader import SkillMDLoader
 from core.skills.file_modifier import SurgicalFileModifierSkill
 from core.skills.model_connector import ModelConnectorSkill
 from core.skills.spec_optimizer import SpecStructuralIsolationSkill
@@ -33,6 +34,13 @@ class SkillRegistry:
     def list_manifests(self) -> list:
         """Generates schema lists of all registered tools for auditing purposes."""
         return [skill.get_manifest() for skill in self._skills.values()]
+
+    def list_md_manifests(self) -> List[dict]:
+        """Load markdown skill definitions and return their frontmatter."""
+        return [
+            data["frontmatter"]
+            for data in SkillMDLoader.load_all().values()
+        ]
 
 
 SkillRegistry.__doc__ = PromptLoader.get("skills", "Registry")

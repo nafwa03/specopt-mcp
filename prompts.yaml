@@ -1,7 +1,28 @@
 signatures:
-  DatasetGeneratorSignature: >
-    Task: Read a system prompt and generate a JSON array of distinct mock scenarios to test it.
-    Output ONLY raw JSON. No emojis, no markdown, no explanations.
+  DatasetGeneratorSignature: |
+    Generate exactly {num_examples} realistic test scenarios for the following agent prompt.
+
+    AGENT SYSTEM PROMPT:
+    {agent_prompt}
+    {doc_block}
+    For each scenario, provide:
+    - "input_context": A realistic user query the agent might receive
+    - "gold_response": A single concise string (NOT an array). Keep it to 1-3 sentences.
+
+    CRITICAL RULES:
+    - Return ONLY a raw JSON array of objects with keys 'input_context' and 'gold_response'.
+    - Do NOT wrap the array inside an object like {{"data": [...]}}.
+    - "gold_response" MUST be a string, never an array.
+    - The ENTIRE response must be valid JSON. Do not truncate.
+    - No markdown, no emojis, no explanations before or after the JSON.
+
+    Example of the expected format:
+    [
+      {{"input_context": "Example user query 1", "gold_response": "Expected answer 1"}},
+      {{"input_context": "Example user query 2", "gold_response": "Expected answer 2"}}
+    ]
+
+    JSON ARRAY:
   CodeDatasetGeneratorSignature: |
     Task: Read a Python file's source code. Generate a JSON array of mock testing inputs
     and expected outputs that evaluate the boundaries, edge cases, and error handling of the logic.

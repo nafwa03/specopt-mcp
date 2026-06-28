@@ -38,7 +38,7 @@ pipeline:
     baseline_min: 40.0
     baseline_max: 70.0
     negative_class_min: 15.0
-    on_failure: "warn"   # "warn" = log + continue, "abort" = stop on validation failure
+    on_failure: "abort"   # "warn" = log + continue, "abort" = stop on validation failure
   section:
     min_body_length: 40
     min_section_length: 10
@@ -70,7 +70,7 @@ providers:
     max_tokens: 1024
 
 agent_brain:
-  model: "openai/custom-model"
+  model: "mistralai/mistral-7b-instruct-v0.3      "
   api_base: "http://localhost:1234/v1"
   api_key: "not-needed"
   temperature: 0.1

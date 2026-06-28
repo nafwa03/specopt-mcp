@@ -1,7 +1,7 @@
 ---
 name: Dataset Validation Metrics
 description: A comprehensive specification for evaluating synthetic datasets used to test LLM agents.
-license: Complete terms in LICENSE.txt
+license: MIT
 ---
 
 ## Overview
