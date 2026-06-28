@@ -1,0 +1,109 @@
+pipeline:
+  default_optimizer: "mipro"
+  mipro:
+    num_trials: 5
+    num_trials_code: 3
+    num_candidates: 3
+    num_candidates_code: 2
+    max_bootstrapped_demos: 1
+    max_bootstrapped_demos_code: 0
+    seed: 9
+    minibatch: false
+  gepa:
+    auto: "light"
+    seed: 0
+    num_threads: 1
+    max_metric_calls: 1
+  dataset:
+    num_examples: 15
+    max_tokens: 2048
+    temperature: 0.6
+    chunk_size: 4000
+    chunk_overlap: 200
+    document_extensions:
+      - ".md"
+      - ".txt"
+      - ".json"
+      - ".pdf"
+      - ".docx"
+      - ".html"
+      - ".pptx"
+  curation:
+    enabled: false
+    threshold: 7.0
+  dataset_validation:
+    enabled: true
+    alignment_threshold: 80.0
+    diversity_threshold: 0.75
+    baseline_min: 40.0
+    baseline_max: 70.0
+    negative_class_min: 15.0
+    on_failure: "warn"   # "warn" = log + continue, "abort" = stop on validation failure
+  section:
+    min_body_length: 40
+    min_section_length: 10
+    no_change_threshold: 5
+    default_baseline_score: 50
+
+providers:
+  default: "lm-studio"
+  lm-studio:
+    api_base: "http://localhost:1234/v1"
+    api_key: "not-needed"
+    default_model: "mistralai/mistral-7b-instruct-v0.3"
+    timeout: 600
+    temperature: 0.7
+    max_tokens: 1024
+  ollama:
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama-token"
+    default_model: "llama3"
+    timeout: 600
+    temperature: 0.7
+    max_tokens: 1024
+  lemonade:
+    api_base: "http://localhost:8000/v1"
+    api_key: "lemonade-token"
+    default_model: "lemon-model"
+    timeout: 600
+    temperature: 0.7
+    max_tokens: 1024
+
+agent_brain:
+  model: "openai/custom-model"
+  api_base: "http://localhost:1234/v1"
+  api_key: "not-needed"
+  temperature: 0.1
+
+file_suffixes:
+  backup: ".bak"
+  generated_dataset: "_generated_dataset.json"
+  optimized: "_optimized"
+  compiled_prompt: "_compiled_prompt.txt"
+  section_comparison: "_section_comparison.md"
+  report: "optimization_report.md"
+  validation_report: "_dataset_validation_report.md"
+  debug_log: "specopt_mcp_debug.log"
+
+artifact_patterns:
+  - "*.bak"
+  - "*_optimized.*"
+  - "*_compiled_prompt.txt"
+  - "*_section_comparison.md"
+  - "*_generated_dataset.json"
+  - "*_dataset_validation_report.md"
+  - "optimization_report.md"
+
+ignored_dirs:
+  - "__pycache__"
+  - ".git"
+  - ".pytest_cache"
+  - "venv"
+  - ".venv"
+  - "env"
+  - ".env"
+  - ".idea"
+  - "artifacts"
+  - "node_modules"
+  - ".mypy_cache"
+  - ".ruff_cache"

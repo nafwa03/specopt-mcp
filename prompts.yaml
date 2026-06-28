@@ -1,0 +1,161 @@
+signatures:
+  DatasetGeneratorSignature: >
+    Task: Read a system prompt and generate a JSON array of distinct mock scenarios to test it.
+    Output ONLY raw JSON. No emojis, no markdown, no explanations.
+  CodeDatasetGeneratorSignature: |
+    Task: Read a Python file's source code. Generate a JSON array of mock testing inputs
+    and expected outputs that evaluate the boundaries, edge cases, and error handling of the logic.
+
+    CRITICAL JSON FORMAT RULE:
+    Output strictly a valid raw JSON array of objects. Do not wrap inside markdown blocks.
+    Each object MUST contain:
+    - 'input_context': A simulated input string or malformed scenario that would be passed to this code.
+    - 'gold_response': The expected successful string execution result or error handling behavior.
+  UniversalJudgeSignature: |
+    Task: Act as an objective technical code quality inspector. Compare the
+    agent's prediction against the target gold response using the source facts.
+
+    Strict Grading Rules:
+    1. Focus on Core Intent: Ignore conversational padding, introductory verbs
+       (e.g., 'Run', 'Execute', 'Use'), punctuation, or markdown code blocks.
+    2. Pass Criterion: If the agent's output contains or executes the exact
+       technical command, flag, or architectural fact specified in the gold response,
+       you MUST return 'YES'.
+    3. Fail Criterion: If the agent recommends an incorrect flag, suggests a
+       completely wrong command, or violates file restrictions, return 'NO'.
+    4. Return ONLY 'YES' or 'NO'. No emojis, no punctuation, no additional text.
+  DynamicAgentSignature: >
+    The dynamic signature that holds your agent's system prompt instructions.
+  SpecDocumentationSignature: >
+    Task: Refine and expand structural schema descriptions into detailed, high-utility technical documentation primitives.
+  SecurityAuditorSignature: |
+    Task: Audit a proposed system prompt for security vulnerabilities.
+    Inspect the text for missing isolation markers, vulnerable appending language,
+    or any instruction that explicitly tells the model to ignore, reveal, or bypass safety rules.
+    Return ONLY 'YES' or 'NO'. No emojis, no punctuation, no additional text.
+  FactGroundingAuditorSignature: |
+    Task: Audit an agent prediction for false information or hallucinations.
+    Compare the agent's text against the gold reference document. Verify every claim.
+    Return ONLY 'YES' or 'NO'. No emojis, no punctuation, no additional text.
+  CodeOptimizationSignature: |
+    Task: Analyze an existing Python Skill class file and optimize its execution logic.
+    Improve error handling, strengthen regex pattern boundaries, and maximize code runtime efficiency.
+
+    CRITICAL COMPLIANCE RULES:
+    1. Your output MUST be completely valid, raw, executable Python code.
+    2. You MUST preserve the exact class interface structure, method names, and inheritance hooks.
+    3. Do NOT wrap the python code inside markdown backticks (```python) or output explanatory text.
+  ContextualJudgeSignature: >
+    Task: Act as an objective technical code quality inspector. Compare the
+    agent's prediction against the target gold response using the source facts.
+    Return ONLY 'YES' or 'NO'. No emojis, no punctuation, no additional text.
+
+  UniversalAgentProgram: >
+    A universal, project-agnostic engineering assistant program.
+
+  SpecSectionSignature: >
+    Optimize a single section of an AGENTS documentation file for clarity, completeness, and precision.
+  DatasetValidatorSignature: |
+    Task: Validate a synthetic test case generated for an agent system prompt.
+    Determine if the test case is solvable using only the provided documentation,
+    if the expected answer is correct, and rate its hardness.
+
+    Strict Rules:
+    1. 'is_solvable': Return 'YES' if an agent can realistically answer this based ONLY on the documentation, otherwise 'NO'.
+    2. 'is_label_correct': Return 'YES' if the gold_response is the correct answer for the input_context, otherwise 'NO'.
+    3. 'hardness_score': Rate 1 to 5 — 1=trivial, 3=realistic, 5=highly complex edge case.
+    4. 'is_adversarial': Return 'YES' if this is an out-of-scope, jailbreak, or adversarial query, otherwise 'NO'.
+    Return ONLY plain text values. No emojis, no formatting.
+  SpecSectionQualitySignature: >
+    Rate the quality of an optimized documentation section compared to the original.
+
+skills:
+  SurgicalFileModifierSkill: >
+    Surgically modifies text bodies while ensuring markdown frontmatter
+    configurations remain untouched. Outputs to a separate _optimized file.
+  ModelConnectorSkill: >
+    Dynamically configures and initializes DSPy clients for LM Studio, Ollama, or Lemonade.
+  SpecStructuralIsolationSkill: >
+    Safely extracts, optimizes, and updates JSON schema documentation fields
+    with round-trip validations, saving to an _optimized file.
+  DatasetLoggingSkill: >
+    Intercepts dynamic datasets and saves input/gold-response pairings to disk.
+  DirectoryScannerSkill: >
+    Recursively maps a directory path into targeted python and markdown file lists,
+    ignoring cache files.
+  VerificationSkill: >
+    Runs a blind out-of-sample evaluation on an optimized agent markdown file.
+    Compares the optimized prompt against the original (or a hardcoded fallback)
+    on unseen test scenarios to detect generalization improvement or overfitting.
+  Registry: >
+    Central registry handling initialization and dispatching of native framework skills.
+
+tools:
+  optimize_agent_file: >
+    Dynamically extracts whatever layout an agent file has, establishes its baseline
+    performance, optimizes its text using the selected optimizer (MIPRO or GEPA),
+    and outputs an optimized file securely. Optionally accepts a document_dir path
+    to supplementary reference docs (.md, .txt, .json, .pdf) for richer dataset generation.
+    When documents are provided, the generated dataset is automatically validated before
+    optimization proceeds.
+  optimize_specification_file: >
+    Safely parses a machine-generated specification JSON file, optimizing descriptions
+    while preserving structural layout keys intact, and outputs an optimized file securely.
+  optimize_skill_logic: >
+    Safely runs code optimization loops over a Python skill file, executing your local
+    pytest suite as a strict metric hurdle before saving changes to disk.
+  verify_prompt_generalization: >
+    Independent Quality Assurance (QA) tool. Runs a blind out-of-sample evaluation pass
+    on an optimized file to verify its true accuracy improvement on unseen data.
+  optimize_agents_file_by_section: >
+    Parse an AGENTS markdown file into sections by headers, optimize each section
+    independently using the selected optimizer (MIPRO or GEPA), and output a
+    side-by-side original-vs-optimized comparison document.
+  cleanup_pipeline_artifacts: >
+    Scans a directory for all pipeline-generated artifacts (.bak, _optimized.*,
+    _compiled_prompt.txt, _section_comparison.md, _generated_dataset.json,
+    optimization_report.md) and moves them to an artifacts/<timestamp>/
+    folder to provide a clean workspace.
+  generate_training_dataset: >
+    Generates a synthetic training dataset from an agent markdown file without
+    running the full optimization pipeline. Optionally accepts a document_dir path
+    to supplementary reference docs (.md, .txt, .json, .pdf) for richer test scenarios.
+    Saves the dataset as a _generated_dataset.json file alongside the input file.
+  validate_generated_dataset: >
+    Validates a generated training dataset against four quality criteria:
+    1. Alignment — LLM-as-Judge checks solvability, label correctness, and hardness.
+    2. Diversity — sentence-transformers embedding similarity (target < 0.75).
+    3. Baseline Failure Test — runs unoptimized agent against dataset (target 40-70%).
+    4. Negative Class Ratio — checks for adversarial/out-of-scope cases (target ≥15%).
+    Returns a structured PASS/FAIL verdict with per-metric breakdown.
+
+agent_brain:
+  system_prompt: >
+    You are an AI Orchestration Agent. You have access to an MCP Optimizer Server.
+    If the user prefers a local architecture, pass those settings to 'provider' and 'model' args.
+    The 'optimizer_type' parameter accepts "mipro" (MIPROv2) or "gepa" (genetic evolution).
+  optimize_agent_file_tool: >
+    Optimizes system prompt files using the selected optimizer. The 'optimizer_type'
+    parameter accepts "mipro" (MIPROv2, default) or "gepa" (genetic evolution).
+  optimize_skill_logic_tool: >
+    Optimizes Python skill file code using the selected optimizer. The 'optimizer_type'
+    parameter accepts "mipro" (MIPROv2, default) or "gepa" (genetic evolution).
+  optimize_entire_skill_directory_tool: >
+    Recursively scans an entire project directory folder, optimizing all markdown
+    and python files in a single batch pass.
+  verify_prompt_generalization_tool: >
+    Independent Quality Assurance (QA) tool. Runs a blind out-of-sample evaluation pass
+    on an optimized file to verify its true accuracy improvement on unseen data.
+    Use this tool after an optimization run to verify if the changes actually improved.
+  generate_training_dataset_tool: >
+    Generates a synthetic training dataset from an agent markdown file without
+    running optimization. Optionally accepts a document_dir path for supplementary
+    reference docs. Saves a _generated_dataset.json file alongside the input.
+  validate_generated_dataset_tool: >
+    Validates a generated training dataset against quality criteria (alignment,
+    diversity, baseline failure test, negative class ratio). Use after generating
+    a dataset to ensure it meets quality thresholds before running optimization.
+
+defaults:
+  baseline_instructions: >
+    You are a simple creative writing assistant. Help me write poetry.
