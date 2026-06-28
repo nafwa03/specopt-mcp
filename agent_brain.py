@@ -5,35 +5,50 @@ from openai import BadRequestError
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from core.prompt_loader import PromptLoader
 from core.config_loader import ConfigLoader
 from core.skill_md_loader import SkillMDLoader
 
 def _build_system_prompt() -> str:
-    base = PromptLoader.get("agent_brain", "system_prompt")
+    parts = [PromptLoader.get("agent_brain", "system_prompt")]
+
+    tool_keys = [
+        "optimize_agent_file_tool",
+        "optimize_skill_logic_tool",
+        "optimize_entire_skill_directory_tool",
+        "verify_prompt_generalization_tool",
+        "generate_training_dataset_tool",
+        "validate_generated_dataset_tool",
+    ]
+    tool_lines = ["\n\n## Available Tools (call via function calling)"]
+    for key in tool_keys:
+        name = key.removesuffix("_tool")
+        desc = PromptLoader.get("agent_brain", key)
+        tool_lines.append(f"- **{name}**: {desc}")
+    parts.append("\n".join(tool_lines))
+
     md_skills = SkillMDLoader.load_all()
-    if not md_skills:
-        return base
+    if md_skills:
+        lines = ["\n\n## Available Markdown Skill Definitions"]
+        for name, data in md_skills.items():
+            fm = data["frontmatter"]
+            in_list = ", ".join(
+                f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("inputs", [])
+            )
+            out_list = ", ".join(
+                f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("outputs", [])
+            )
+            purpose = ""
+            if "## Purpose" in data["body"]:
+                purpose = data["body"].split("## Purpose")[-1].split("##")[0].strip().split("\n")[0]
+            lines.append(f"- {name}: inputs({in_list}) -> outputs({out_list})")
+            if purpose:
+                lines.append(f"  {purpose}")
+        parts.append("\n".join(lines))
 
-    lines = ["\n\nAvailable markdown skill definitions:"]
-    for name, data in md_skills.items():
-        fm = data["frontmatter"]
-        in_list = ", ".join(
-            f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("inputs", [])
-        )
-        out_list = ", ".join(
-            f"{list(k.keys())[0]}: {list(k.values())[0]}" for k in fm.get("outputs", [])
-        )
-        purpose = ""
-        if "## Purpose" in data["body"]:
-            purpose = data["body"].split("## Purpose")[-1].split("##")[0].strip().split("\n")[0]
-        lines.append(f"- {name}: inputs({in_list}) -> outputs({out_list})")
-        if purpose:
-            lines.append(f"  {purpose}")
-
-    return base + "\n".join(lines)
+    return "\n".join(parts)
 
 
 def _check_lm_studio_ready(api_base: str, model: str) -> bool:
@@ -191,16 +206,14 @@ class AgenticOrchestrator:
 
         return [optimize_agent_file_tool, optimize_skill_logic_tool, optimize_entire_skill_directory_tool, verify_prompt_generalization_tool, generate_training_dataset_tool, validate_generated_dataset_tool]
 
-    async def run_reasoning_loop(self, user_query: str):
+    async def run_reasoning_loop(self, first_query: str | None = None):
         print("[Init] Initializing Agentic reasoning channel...")
 
         async with stdio_client(self.server_params) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                # Bind the network session instance context to the orchestrator object
                 self.mcp_session = session
 
-                # Fetch dynamically linked tools
                 tools_list = self.get_tools()
 
                 brain_cfg = ConfigLoader.get("agent_brain")
@@ -218,44 +231,75 @@ class AgenticOrchestrator:
                     temperature=brain_cfg["temperature"]
                 ).bind_tools(tools_list)
 
-                messages = [
-                    SystemMessage(content=_build_system_prompt()),
-                    HumanMessage(content=user_query)
-                ]
+                messages = [SystemMessage(content=_build_system_prompt())]
 
-                print(f"\n[User] Request: {user_query}")
-                print("[Analyze] Agent is analyzing request and choosing a strategy...")
+                print("\n=== Agentic Orchestrator (conversational) ===")
+                print("Type 'exit' or 'quit' to end the session.\n")
 
-                try:
-                    ai_analysis = brain_llm.invoke(messages)
-                except BadRequestError as e:
-                    print(f"[Error] LM Studio request failed: {e}")
-                    print("[Error] No model is loaded in LM Studio. Load a model and try again.")
-                    return
+                user_input = first_query
+                while True:
+                    if user_input is None:
+                        try:
+                            user_input = input("You: ").strip()
+                        except (EOFError, KeyboardInterrupt):
+                            print("\n[Session] Goodbye.")
+                            break
 
-                if ai_analysis.tool_calls:
-                    for call in ai_analysis.tool_calls:
-                        # Locate the matching local tool tool object handle and execute it
-                        matched_tool = next((t for t in tools_list if t.name == call['name']), None)
-                        if matched_tool:
-                            print(f"\n[Decision] Selected Tool: '{call['name']}'")
-                            result = await matched_tool.ainvoke(call['args'])
-                            print(f"\n[Result] Pipeline Response:\n{result}")
-                else:
-                    print("[Error] Agent did not trigger a tool tool call. Response:", ai_analysis.content)
+                    if not user_input:
+                        user_input = None
+                        continue
+
+                    if user_input.lower() in ("exit", "quit", "bye"):
+                        print("[Session] Goodbye.")
+                        break
+
+                    messages.append(HumanMessage(content=user_input))
+
+                    while True:
+                        try:
+                            ai_msg = brain_llm.invoke(messages)
+                        except BadRequestError as e:
+                            print(f"[Error] LM Studio request failed: {e}")
+                            print("[Error] The model may have been unloaded. Check LM Studio.")
+                            break
+
+                        messages.append(ai_msg)
+
+                        if not ai_msg.tool_calls:
+                            if ai_msg.content:
+                                print(f"\n[Agent] {ai_msg.content}\n")
+                            break
+
+                        for tc in ai_msg.tool_calls:
+                            matched_tool = next(
+                                (t for t in tools_list if t.name == tc["name"]), None
+                            )
+                            if matched_tool:
+                                print(f"\n[Action] Executing '{tc['name']}'...")
+                                try:
+                                    result = await matched_tool.ainvoke(tc["args"])
+                                    summary = result[:200] + "..." if len(result) > 200 else result
+                                    print(f"[Result] {summary}")
+                                    messages.append(
+                                        ToolMessage(content=result, tool_call_id=tc["id"])
+                                    )
+                                except Exception as e:
+                                    error_msg = f"Tool '{tc['name']}' failed: {e}"
+                                    print(f"[Error] {error_msg}")
+                                    messages.append(
+                                        ToolMessage(content=error_msg, tool_call_id=tc["id"])
+                                    )
+
+                    user_input = None
 
 
 if __name__ == '__main__':
-    # Initialize our object-oriented runner
+    import sys
     orchestrator = AgenticOrchestrator()
-
-    # Define a clean natural language task query
-    task = (
-        "Please optimize our prompt file at './agents/writer.md' using 10 trials via LM Studio. "
-        "Immediately after the optimization pass finishes, execute our QA validation tool on the file "
-        "to verify if the changes genuinely improved our accuracy parameters on unseen test data."
-    )
-
-    asyncio.run(orchestrator.run_reasoning_loop(task))
+    first_query = sys.argv[1] if len(sys.argv) > 1 else None
+    try:
+        asyncio.run(orchestrator.run_reasoning_loop(first_query))
+    except KeyboardInterrupt:
+        print("\n[Session] Interrupted. Goodbye.")
 
 
