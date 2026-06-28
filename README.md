@@ -436,7 +436,9 @@ pipeline:
     baseline_max: 70.0
     negative_class_min: 15.0
 ```
-
+## Links
+- MIPRO: https://dspy.ai/api/optimizers/MIPROv2/
+- GEPA: https://dspy.ai/api/optimizers/GEPA/overview/
 
 
 ## Requirements
