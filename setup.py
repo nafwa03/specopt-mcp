@@ -16,7 +16,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            # 🚀 This defines the terminal command and hooks it to your main function
+            # This defines the terminal command and hooks it to your main function
             "specopt-server=core.server:main",
         ],
     },
