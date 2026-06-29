@@ -49,7 +49,6 @@ specopt-mcp/
 │   ├── test_skills.py         # Unit tests for skill classes + SkillMDLoader
 │   └── test_pipeline_integration.py # Integration tests for pipelines
 │
-├── opencode.json              # opencode MCP server config
 ├── agent_brain.py             # LangChain agent with dynamic skill discovery
 ├── config.yaml                # Pipeline, provider, and artifact config
 ├── prompts.yaml               # DSPy signatures and tool descriptions
