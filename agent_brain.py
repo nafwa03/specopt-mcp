@@ -109,7 +109,7 @@ def _check_lm_studio_ready(api_base: str, model: str) -> bool:
 
 class AgenticOrchestrator:
     def __init__(self, server_script="server.py"):
-        # 💡 UPDATE: Point this directly to your new system command
+        # UPDATE: Point this directly to your new system command
         self.server_params = StdioServerParameters(
             command="specopt-server",
             args=[]
