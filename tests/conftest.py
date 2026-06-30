@@ -70,3 +70,62 @@ class MockLM(dspy.BaseLM):
             model=kwargs.get("model", self.model),
             mode=self.mode,
         )
+
+
+# ---------------------------------------------------------------------------
+# Fixtures for optimize_anything adapter tests
+# ---------------------------------------------------------------------------
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+
+@pytest.fixture
+def mock_optimize_anything():
+    mock_result = MagicMock()
+    mock_result.best_candidate = "Optimized content result"
+    mock_result.val_aggregate_scores = [0.85]
+    mock_result.candidates = [{"text": "Optimized content result"}]
+    mock_result.total_metric_calls = 10
+    with patch("core.optimize_anything_adapter._build_gepa_config", return_value=None):
+        with patch(
+            "core.optimize_anything_adapter._oa_optimize_anything",
+            return_value=mock_result,
+        ):
+            with patch("core.optimize_anything_adapter._OA_AVAILABLE", True):
+                yield
+
+
+@pytest.fixture
+def sample_markdown_file(tmp_path):
+    p = tmp_path / "test_skill.md"
+    p.write_text("# Test Skill\n\n## Overview\nA test skill.\n\n## Rules\n- Rule one\n- Rule two\n")
+    return str(p)
+
+
+@pytest.fixture
+def sample_python_file(tmp_path):
+    p = tmp_path / "test_script.py"
+    p.write_text("def hello():\n    print('hello')\n")
+    return str(p)
+
+
+@pytest.fixture
+def sample_yaml_file(tmp_path):
+    p = tmp_path / "test_config.yaml"
+    p.write_text("key: value\nnested:\n  inner: 42\n")
+    return str(p)
+
+
+@pytest.fixture
+def sample_json_file(tmp_path):
+    p = tmp_path / "test_data.json"
+    p.write_text('{"name": "test", "count": 3}\n')
+    return str(p)
+
+
+@pytest.fixture
+def sample_shell_file(tmp_path):
+    p = tmp_path / "test_script.sh"
+    p.write_text("#!/bin/bash\necho 'hello'\n")
+    return str(p)

@@ -266,3 +266,202 @@ def test_optimize_then_verify_cycle(cleanup_files):
 
     generated_dataset_path = os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_generated_dataset.json")
     assert os.path.exists(generated_dataset_path), "Generated dataset should persist for verifier"
+
+
+# ---------------------------------------------------------------------------
+# optimize_anything adapter tests
+# ---------------------------------------------------------------------------
+
+
+def test_detect_artifact_type():
+    from core.optimize_anything_adapter import detect_artifact_type
+
+    assert detect_artifact_type("file.md") == "markdown"
+    assert detect_artifact_type("file.py") == "python"
+    assert detect_artifact_type("file.yaml") == "yaml"
+    assert detect_artifact_type("file.json") == "json"
+    assert detect_artifact_type("file.sh") == "shell"
+    assert detect_artifact_type("file.txt") == "text"
+    assert detect_artifact_type("file.unknown") == "text"
+    assert detect_artifact_type("file.json", '{"a": 1}') == "json"
+
+
+def test_estimate_tokens():
+    from core.optimize_anything_adapter import estimate_tokens
+
+    text = "hello world " * 100
+    count = estimate_tokens(text)
+    assert count > 0
+
+
+def test_extract_code_blocks():
+    from core.optimize_anything_adapter import extract_code_blocks
+
+    text = "Some text\n```python\nprint('hello')\n```\nMore text\n```bash\necho hi\n```"
+    blocks = extract_code_blocks(text)
+    assert len(blocks) == 2
+    assert blocks[0]["language"] == "python"
+    assert blocks[1]["language"] == "bash"
+
+
+def test_validate_code_syntax_python_ok():
+    from core.optimize_anything_adapter import validate_code_syntax
+
+    errors = validate_code_syntax("x = 1", "python")
+    assert errors == []
+
+
+def test_validate_code_syntax_python_error():
+    from core.optimize_anything_adapter import validate_code_syntax
+
+    errors = validate_code_syntax("x = ", "python")
+    assert len(errors) >= 1
+
+
+def test_validate_markdown_structure():
+    from core.optimize_anything_adapter import validate_markdown_structure
+
+    text = "# Title\n\n## Overview\nContent\n\n## Rules\n- rule\n"
+    issues = validate_markdown_structure(text)
+    assert issues == []
+
+    text = "# Title\n\n## Details\nContent\n"
+    issues = validate_markdown_structure(text)
+    assert any("Overview" in i for i in issues)
+
+
+def test_compute_regressions():
+    from core.optimize_anything_adapter import compute_regressions
+
+    orig = "line one\nline two\nline three\n"
+    cand = "line one\nmodified two\nline three\n"
+    regressions = compute_regressions(orig, cand)
+    assert len(regressions) >= 1
+    assert regressions[0]["type"] == "line_changed"
+
+
+def test_compute_composite_score():
+    from core.optimize_anything_adapter import compute_composite_score
+
+    score = compute_composite_score(
+        conciseness={"score": 1.0},
+        syntax_errors=[],
+        structural_issues=[],
+        regressions=[],
+        format_issues=[],
+    )
+    assert score == 1.0
+
+    score = compute_composite_score(
+        conciseness={"score": 0.5},
+        syntax_errors=[{"language": "python", "line": 1, "error": "syntax err"}],
+        structural_issues=["Missing section"],
+        regressions=[{"type": "line_changed", "before": "a", "after": "b"}],
+        format_issues=["trailing whitespace"],
+    )
+    assert 0.0 <= score < 1.0
+
+
+def test_check_format_adherence():
+    from core.optimize_anything_adapter import check_format_adherence
+
+    issues = check_format_adherence("line one\nline two  \nline three\n")
+    assert len(issues) >= 1
+
+
+def test_make_universal_evaluator(sample_markdown_file):
+    from core.optimize_anything_adapter import make_universal_evaluator
+
+    with open(sample_markdown_file) as f:
+        content = f.read()
+
+    evaluator = make_universal_evaluator("markdown", content)
+    score, asi = evaluator(content)
+    assert isinstance(score, float)
+    assert 0.0 <= score <= 1.0
+    assert "Conciseness" in asi
+    assert "SyntaxErrors" in asi
+    assert "StructuralIssues" in asi
+    assert "Regressions" in asi
+    assert "FormatIssues" in asi
+
+
+def test_run_optimize_anything_pipeline(sample_markdown_file, mock_optimize_anything):
+    from core.optimize_anything_adapter import run_optimize_anything_pipeline
+
+    result = run_optimize_anything_pipeline(
+        artifact_path=sample_markdown_file,
+        objective="Test optimization",
+        max_metric_calls=5,
+    )
+    assert isinstance(result, str)
+    assert "optimize_anything" in result
+    assert "Optimization Complete" in result
+
+
+def test_run_optimize_anything_pipeline_missing_file():
+    from core.optimize_anything_adapter import run_optimize_anything_pipeline
+
+    result = run_optimize_anything_pipeline(
+        artifact_path="/nonexistent/path.md",
+    )
+    assert "Error: Target file not found" in result
+
+
+def test_run_optimize_anything_pipeline_with_reference(sample_markdown_file, tmp_path, mock_optimize_anything):
+    from core.optimize_anything_adapter import run_optimize_anything_pipeline
+
+    ref = tmp_path / "reference.md"
+    ref.write_text("# Reference\n\n## Overview\nRef\n\n## Rules\n- r1\n")
+
+    result = run_optimize_anything_pipeline(
+        artifact_path=sample_markdown_file,
+        reference_path=str(ref),
+        objective="Test with reference",
+    )
+    assert isinstance(result, str)
+    assert "Optimization Complete" in result
+
+
+def test_run_optimize_anything_pipeline_multi_task(sample_markdown_file, sample_python_file, tmp_path, mock_optimize_anything):
+    from core.optimize_anything_adapter import run_optimize_anything_pipeline
+
+    result = run_optimize_anything_pipeline(
+        artifact_path=sample_markdown_file,
+        objective="Multi-task optimization",
+        dataset_paths=[sample_python_file],
+    )
+    assert isinstance(result, str)
+    assert "multi-task" in result
+
+
+def test_evaluator_python_detects_syntax_errors(tmp_path):
+    from core.optimize_anything_adapter import make_universal_evaluator
+
+    bad_code = "def broken(\n    print('missing parens')\n"
+    evaluator = make_universal_evaluator("python", bad_code)
+    score, asi = evaluator(bad_code)
+    assert len(asi["SyntaxErrors"]) >= 1
+
+
+def test_evaluator_tracks_conciseness(tmp_path):
+    from core.optimize_anything_adapter import make_universal_evaluator
+
+    long_content = "\n".join(f"line {i}" for i in range(300))
+    evaluator = make_universal_evaluator("text", long_content, max_lines=150, max_tokens=50000)
+    score, asi = evaluator(long_content)
+    assert asi["Conciseness"]["lines"] == 300
+    assert asi["Conciseness"]["score"] < 1.0
+
+
+def test_detect_artifact_type_by_content():
+    from core.optimize_anything_adapter import detect_artifact_type
+
+    json_content = '{"key": "value"}'
+    assert detect_artifact_type("unknown", json_content) == "json"
+
+    yaml_content = "---\nkey: value\n"
+    assert detect_artifact_type("unknown", yaml_content) == "yaml"
+
+    text_content = "Just plain text\nwith no extension hint\n"
+    assert detect_artifact_type("unknown", text_content) == "text"

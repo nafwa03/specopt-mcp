@@ -17,6 +17,7 @@ from core.optimizer import (
     run_dataset_generation_pipeline,
     run_dataset_validation_pipeline,
 )
+from core.optimize_anything_adapter import run_optimize_anything_pipeline
 
 
 class ThreadLocalStdout:
@@ -290,6 +291,63 @@ async def validate_generated_dataset(dataset_path: str, agent_markdown_path: str
 
 
 validate_generated_dataset.__doc__ = PromptLoader.get("tools", "validate_generated_dataset")
+
+
+@mcp.tool()
+async def optimize_with_optimize_anything(
+    artifact_path: str,
+    objective: str = "",
+    background: str = "",
+    reference_path: str = "",
+    max_metric_calls: int = 50,
+    evaluator_type: str = "",
+    dataset_paths: list[str] | None = None,
+    provider: str = "lm-studio",
+    model: str = "",
+) -> str:
+    """Optimize any text artifact (agent skills, code, configs, prompts) using
+    gepa.optimize_anything with deterministic, actionable evaluators.
+
+    Uses concrete checks (linting, syntax validation, conciseness scoring,
+    regression detection) as the scoring signal — ideal for tasks where
+    objective, measurable feedback is preferred over subjective LLM judgment.
+    """
+    if not os.path.exists(artifact_path):
+        return f"Error: Target file not found at path: {artifact_path}"
+
+    if reference_path and not os.path.exists(reference_path):
+        return f"Error: Reference file not found at path: {reference_path}"
+
+    if dataset_paths:
+        missing = [p for p in dataset_paths if not os.path.exists(p)]
+        if missing:
+            return f"Error: Dataset file(s) not found: {missing}"
+
+    connection_skill = registry.get_skill("model_connector")
+    lm_client = connection_skill.execute(provider=provider, model=model)
+
+    logging.info("Spawning optimize_anything worker thread for: %s", artifact_path)
+    try:
+        with anyio.fail_after(3600):
+            result = await anyio.to_thread.run_sync(
+                lambda: run_optimize_anything_pipeline(
+                    artifact_path=artifact_path,
+                    objective=objective,
+                    background=background,
+                    reference_path=reference_path or None,
+                    max_metric_calls=max_metric_calls,
+                    evaluator_type=evaluator_type or None,
+                    dataset_paths=dataset_paths,
+                    lm_client=lm_client,
+                )
+            )
+    except TimeoutError:
+        logging.error("optimize_anything pipeline timed out after 3600 seconds")
+        return "Error: Optimization timed out after 60 minutes."
+    return result
+
+
+optimize_with_optimize_anything.__doc__ = PromptLoader.get("tools", "optimize_with_optimize_anything")
 
 
 def main():

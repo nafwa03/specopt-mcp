@@ -8,7 +8,11 @@ import shutil
 import subprocess
 import difflib
 import dspy
-from dspy.teleprompt import MIPROv2, GEPA
+from dspy.teleprompt import MIPROv2
+try:
+    from dspy.teleprompt import GEPA
+except ImportError:
+    GEPA = None
 from dspy.evaluate import Evaluate
 from typing import List, Optional, Callable, Union
 from core.prompt_loader import PromptLoader
@@ -710,6 +714,11 @@ def _create_teleprompter(optimizer_type: str, metric: Callable, lm_client,
         )
 
     elif ot == "gepa":
+        if GEPA is None:
+            raise ImportError(
+                "GEPA optimizer is not available. Install dspy>=3.0.0,<4.0.0 "
+                "which includes dspy.teleprompt.GEPA."
+            )
         gepa_cfg = ConfigLoader.get("pipeline", "gepa")
         gepa_kwargs = dict(
             metric=_adapt_metric_for_gepa(metric),
