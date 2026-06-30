@@ -10,9 +10,9 @@ setup(
         "mcp>=1.0.0",
         "langchain-core>=0.1.0",
         "langchain-openai>=0.1.0",
-        "dspy>=2.4.0",
+        "dspy>=3.0.0,<4.0.0",
         "anyio>=4.0.0",
-        "pytest>=8.0.0"
+        "pytest>=8.0.0",
     ],
     entry_points={
         "console_scripts": [

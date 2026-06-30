@@ -4,7 +4,7 @@ DSPy-Powered Prompt & Code Optimization via the Model Context Protocol (MCP).
 
 Two modes of operation:
 
-- **MCP Server** (`core/server.py`): Exposes 8 optimization tools via stdio MCP. Connect any MCP client (opencode, etc.) for direct tool invocation. Tools are pre-registered via `@mcp.tool()` — no dynamic discovery.
+- **MCP Server** (`core/server.py`): Exposes 9 optimization tools via stdio MCP. Connect any MCP client (opencode, etc.) for direct tool invocation. Tools are pre-registered via `@mcp.tool()` — no dynamic discovery.
 
 - **Agent Brain** (`agent_brain.py`): A standalone LangChain agent that dynamically discovers markdown skill definitions from `skills/*.md` and injects them into its system prompt. The LLM autonomously reasons about which tools to invoke based on natural language requests.
 
@@ -18,13 +18,14 @@ Currently works with **LM Studio**. Includes stub connectors for **Ollama** and 
 specopt-mcp/
 │
 ├── core/
-│   ├── server.py              # FastMCP stdio transport server (tool entrypoints)
-│   ├── optimizer.py           # DSPy optimization pipelines (MIPROv2, GEPA)
-│   ├── base_skill.py          # Abstract base class for pluggable skills
-│   ├── skill_md_loader.py     # Parses skills/*.md into discoverable manifests
-│   ├── config_loader.py       # YAML configuration loader
-│   ├── prompt_loader.py       # YAML prompt/description loader
-│   ├── artifact_cleanup.py    # Pipeline artifact archival utility
+│   ├── server.py                        # FastMCP stdio transport server (tool entrypoints)
+│   ├── optimizer.py                     # DSPy optimization pipelines (MIPROv2, GEPA)
+│   ├── optimize_anything_adapter.py     # gepa.optimize_anything integration (NEW)
+│   ├── base_skill.py                    # Abstract base class for pluggable skills
+│   ├── skill_md_loader.py              # Parses skills/*.md into discoverable manifests
+│   ├── config_loader.py                # YAML configuration loader
+│   ├── prompt_loader.py                # YAML prompt/description loader
+│   ├── artifact_cleanup.py             # Pipeline artifact archival utility
 │   └── skills/
 │       ├── __init__.py        # SkillRegistry (auto-registers all skills)
 │       ├── model_connector.py # LM Studio (working); Ollama / Lemonade (stubs)
@@ -216,6 +217,48 @@ Clean up all pipeline artifacts in the './agents' directory
 
 ---
 
+### `optimize_with_optimize_anything`
+Optimizes any text artifact (agent skills, code, configs, prompts) using `gepa.optimize_anything`. Uses **deterministic checks** as the scoring signal — not subjective LLM judgment. Evaluators measure conciseness, syntax validity, structural integrity, regression against a reference, and format adherence.
+
+Supports three modes:
+- **Single-task**: Optimize one file at a time
+- **Multi-task**: Pass `dataset_paths` to optimize multiple related files with cross-transfer
+- **Reference-based regression**: Pass `reference_path` to detect and penalize regressions against a baseline
+
+```python
+result = await session.call_tool("optimize_with_optimize_anything", {
+    "artifact_path": "./agents/writer.md",
+    "objective": "Improve clarity and conciseness",
+    "background": "This agent assists with code review tasks",
+    "reference_path": "./agents/writer.bak",
+    "max_metric_calls": 50,
+    "evaluator_type": "markdown",
+    "dataset_paths": ["./agents/editor.md", "./agents/reviewer.md"],
+    "provider": "lm-studio",
+    "model": ""
+})
+```
+```
+# Agent prompt
+Optimize the agent skill at './agents/writer.md' using gepa.optimize_anything with multi-task mode, checking for regressions against the backup
+```
+
+---
+
+### Evaluator Weights
+
+The composite score is a weighted sum of five deterministic checks:
+
+| Metric | Weight | Description |
+|--------|--------|-------------|
+| Conciseness | 0.30 | Rewards shorter output (inverse of normalized line/token count) |
+| Syntax | 0.35 | Penalizes syntax errors in code blocks (py_compile, bash -n, JSON/YAML parsing) |
+| Structure | 0.30 | Checks heading hierarchy, missing required sections, whitespace issues |
+| Regression | 0.05 | Lightly penalizes content loss or drift vs. reference (diff-based) |
+| Format | 0.05* | Trailing whitespace, missing final newline (`*only applies if issues found`) |
+
+---
+
 > **Provider Support:** Only **LM Studio** is fully functional. The `OllamaLM` and `LemonadeLM` classes in `core/skills/model_connector.py` are stub implementations that show the extension pattern for adding new providers — they return placeholder responses and need a real API client implementation to go live.
 
 ## Architecture
@@ -224,8 +267,9 @@ The system is organized in five layers:
 
 | Layer | Component | Description |
 |-------|-----------|-------------|
-| **Transport** | `core/server.py` | FastMCP stdio server exposing 8 tools, threaded with AnyIO |
+| **Transport** | `core/server.py` | FastMCP stdio server exposing 9 tools, threaded with AnyIO |
 | **Pipeline** | `core/optimizer.py` | DSPy MIPROv2/GEPA optimizers, dataset generation, validation, verification |
+| **Optimize Anything** | `core/optimize_anything_adapter.py` | `gepa.optimize_anything` integration with deterministic evaluators |
 | **Python Skill** | `core/skills/*.py` | Strategy-pattern skills registered in `SkillRegistry` |
 | **Markdown Skill** | `skills/*.md` | Zero-code skill definitions discovered by `SkillMDLoader` |
 | **Agent** | `agent_brain.py` | LangChain agent with dynamic skill discovery |
@@ -233,22 +277,34 @@ The system is organized in five layers:
 ### Evaluation Pipeline Flow
 
 ```
-Agent Markdown File
-    │
-    ▼
-Dataset Generation (LLM-as-Judge) ──► Dataset Validation (4 criteria)
-    │
-    ▼
-Baseline Evaluation (secure_universal_llm_metric)
-    │
-    ▼
-MIPROv2 / GEPA Compile
-    │
-    ▼
-Optimized Evaluation
-    │
-    ▼
-Report Generation ──► QA Verification (blind out-of-sample)
+                              ┌─ DSPy Pipeline ──────────────────────────┐
+                              │  Dataset Generation (LLM-as-Judge)       │
+                              │       │                                  │
+                              │  Dataset Validation (4 criteria)         │
+                              │       │                                  │
+                              │  Baseline Evaluation                     │
+                              │       │                                  │
+                              │  MIPROv2 / GEPA Compile                  │
+                              │       │                                  │
+                              │  Optimized Evaluation                    │
+                              │       │                                  │
+                              │  Report Generation → QA Verification     │
+                              └──────────────────────────────────────────┘
+
+                              ┌─ Optimize Anything Pipeline ─────────────┐
+                              │  Artifact File (any text type)           │
+                              │       │                                  │
+                              │  Deterministic Evaluator:                │
+                              │    • Conciseness (lines/tokens)          │
+                              │    • Syntax validation                   │
+                              │    • Structural integrity                │
+                              │    • Regression / drift detection        │
+                              │    • Format adherence                   │
+                              │       │                                  │
+                              │  gepa.optimize_anything.optimize_anything│
+                              │       │                                  │
+                              │  Optimized Artifact Written Back         │
+                              └──────────────────────────────────────────┘
 ```
 
 The default evaluation metric is a 3-stage guard:
@@ -265,13 +321,11 @@ The default evaluation metric is a 3-stage guard:
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate.ps1
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install (handles DSPy ↔ gepa version conflict)
+./install.sh               # Linux/macOS
+# .\install.ps1            # Windows PowerShell
 
-# 3. Install the server CLI entrypoint
-pip install -e .
-
-# 4. Run tests
+# 3. Run tests
 pytest -v
 
 # Mode 1 — Start the MCP server (for opencode):
@@ -280,6 +334,12 @@ python -m core.server
 # Mode 2 — Launch the LangChain agent brain (standalone):
 python agent_brain.py
 ```
+
+> **Install script details:** The script runs two pip commands:
+> 1. `pip install -e .` — installs specopt-server + DSPy (which pulls `gepa==0.0.27` transitively)
+> 2. `pip install 'gepa>=0.1.1,<0.2' --force-reinstall --no-deps` — overrides with `gepa>=0.1.1` for `optimize_anything` support
+>
+> This two-step approach is needed because DSPy 3.x pins `gepa==0.0.27`, creating a dependency conflict that pip's resolver cannot handle in a single command. The install script is safe to re-run at any time.
 
 ---
 
@@ -365,7 +425,7 @@ The LLM can then reason about which skill to use and how to chain multiple skill
 
 ```bash
 source venv/bin/activate
-pip install -e .                       # registers specopt-server on PATH
+./install.sh                           # installs deps + registers specopt-server on PATH
 python agent_brain.py
 ```
 

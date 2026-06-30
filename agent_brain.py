@@ -21,6 +21,7 @@ def _build_system_prompt() -> str:
         "verify_prompt_generalization_tool",
         "generate_training_dataset_tool",
         "validate_generated_dataset_tool",
+        "optimize_with_optimize_anything_tool",
     ]
     tool_lines = ["\n\n## Available Tools (call via function calling)"]
     for key in tool_keys:
@@ -204,7 +205,36 @@ class AgenticOrchestrator:
             )
             return response.content[0].text
 
-        return [optimize_agent_file_tool, optimize_skill_logic_tool, optimize_entire_skill_directory_tool, verify_prompt_generalization_tool, generate_training_dataset_tool, validate_generated_dataset_tool]
+        @tool(description=PromptLoader.get('agent_brain', 'optimize_with_optimize_anything_tool'))
+        async def optimize_with_optimize_anything_tool(
+            artifact_path: str,
+            objective: str = "",
+            background: str = "",
+            reference_path: str = "",
+            max_metric_calls: int = 50,
+            evaluator_type: str = "",
+            dataset_paths: list[str] | None = None,
+            provider: str = "lm-studio",
+            model: str = "",
+        ) -> str:
+            print(f"[Agent Action] Invoking optimize_with_optimize_anything_tool for: {artifact_path}")
+            response = await self.mcp_session.call_tool(
+                name="optimize_with_optimize_anything",
+                arguments={
+                    "artifact_path": artifact_path,
+                    "objective": objective,
+                    "background": background,
+                    "reference_path": reference_path,
+                    "max_metric_calls": max_metric_calls,
+                    "evaluator_type": evaluator_type,
+                    "dataset_paths": dataset_paths,
+                    "provider": provider,
+                    "model": model,
+                }
+            )
+            return response.content[0].text
+
+        return [optimize_agent_file_tool, optimize_skill_logic_tool, optimize_entire_skill_directory_tool, verify_prompt_generalization_tool, generate_training_dataset_tool, validate_generated_dataset_tool, optimize_with_optimize_anything_tool]
 
     async def run_reasoning_loop(self, first_query: str | None = None):
         print("[Init] Initializing Agentic reasoning channel...")

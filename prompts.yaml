@@ -142,6 +142,15 @@ tools:
     running the full optimization pipeline. Optionally accepts a document_dir path
     to supplementary reference docs (.md, .txt, .json, .pdf) for richer test scenarios.
     Saves the dataset as a _generated_dataset.json file alongside the input file.
+  optimize_with_optimize_anything: >
+    Optimize any text artifact (agent skills, code, configs, prompts) using
+    gepa.optimize_anything. Uses deterministic checks (linting, syntax
+    validation, conciseness, regression detection) as scoring signal —
+    not subjective LLM judgment. Supports single-task, multi-task (via
+    dataset_paths), and reference-based regression detection.
+    Best for: iteratively improving agent markdown skills, Python code,
+    YAML/JSON configs, or shell scripts where concrete, actionable
+    feedback is preferred over qualitative LLM scoring.
   validate_generated_dataset: >
     Validates a generated training dataset against four quality criteria:
     1. Alignment — LLM-as-Judge checks solvability, label correctness, and hardness.
@@ -178,6 +187,13 @@ agent_brain:
     Validates a generated training dataset against quality criteria (alignment,
     diversity, baseline failure test, negative class ratio). Use after generating
     a dataset to ensure it meets quality thresholds before running optimization.
+  optimize_with_optimize_anything_tool: >
+    Optimize a text artifact with gepa.optimize_anything.
+    Required: artifact_path. Optional: objective (natural language goal),
+    background (domain knowledge), reference_path (for regression detection),
+    max_metric_calls (default 50), evaluator_type (auto-detected if empty),
+    dataset_paths (list of related files for multi-task optimization),
+    provider (default lm-studio), model.
 
 defaults:
   baseline_instructions: >
