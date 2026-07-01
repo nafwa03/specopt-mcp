@@ -72,7 +72,7 @@ providers:
   lm-studio:
     api_base: "http://localhost:1234/v1"
     api_key: "not-needed"
-    default_model: "mistralai/mistral-7b-instruct-v0.3"
+    default_model: "openai/gpt-oss-20b"
     timeout: 600
     temperature: 0.7
     max_tokens: 1024

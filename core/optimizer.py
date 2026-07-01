@@ -1,14 +1,15 @@
-import os
-import sys
-import re
-import json
-import logging
 import ast
-import shutil
-import subprocess
 import difflib
 import dspy
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
 from dspy.teleprompt import MIPROv2
+
 try:
     from dspy.teleprompt import GEPA
 except ImportError:
@@ -17,6 +18,7 @@ from dspy.evaluate import Evaluate
 from typing import List, Optional, Callable, Union
 from core.prompt_loader import PromptLoader
 from core.config_loader import ConfigLoader
+from datetime import datetime
 
 try:
     import fitz
@@ -283,7 +285,46 @@ def _try_heal_and_parse(raw_output: str):
     return []
 
 
-def extract_and_load_dataset(raw_output: str) -> list:
+def _make_fallback_dataset(fallback_context: str, min_examples: int = 5) -> list:
+    """Generate on-theme fallback Q&A examples from the agent prompt text when LM parsing fails.
+
+    Extracts section headers and key requirement sentences from the prompt and
+    constructs realistic user-query / expected-response pairs from them.
+    """
+    lines = fallback_context.strip().splitlines()
+    headers = [l.strip() for l in lines if l.strip().startswith("#") and len(l.strip()) > 5]
+    body_lines = [l.strip() for l in lines if len(l.strip()) > 30 and not l.strip().startswith("#")]
+
+    examples = []
+
+    # 1. Build examples from section headers (frame them as user queries)
+    for h in headers:
+        topic = h.lstrip("#").strip()
+        examples.append({
+            "input_context": f"Explain the requirements for: {topic}",
+            "gold_response": topic,
+        })
+
+    # 2. Build task-oriented examples from body sentences
+    for i in range(min(len(body_lines) // 2, min_examples)):
+        query = body_lines[i * 2].rstrip(".:")
+        answer = body_lines[i * 2 + 1] if i * 2 + 1 < len(body_lines) else body_lines[-1]
+        examples.append({
+            "input_context": f"How do I handle: {query[:120]}?",
+            "gold_response": answer[:300],
+        })
+
+    # 3. Fill remaining slots with directive-based examples
+    while len(examples) < min_examples:
+        idx = len(examples)
+        examples.append({
+            "input_context": f"What is step {idx + 1} of the implementation plan?",
+            "gold_response": f"Follow the guidelines in section {idx + 1} of the agent prompt."
+        })
+    return examples[:min_examples * 2]
+
+
+def extract_and_load_dataset(raw_output: str, fallback_context: str = "") -> list:
     """Parse LLM JSON output into a list of dspy.Example objects with fallback handling."""
     json_clean = re.sub(r"^```json|```$", "", raw_output, flags=re.MULTILINE).strip()
 
@@ -310,12 +351,7 @@ def extract_and_load_dataset(raw_output: str) -> list:
 
     if not raw_json_data or not isinstance(raw_json_data, list):
         logger.warning("Failed to parse LM dataset output. Raw response (first 500 chars): %s", raw_output[:500])
-        raw_json_data = [
-            {"input_context": "Write a short creative stanza.",
-             "gold_response": "The gears turn quietly inside the machine."},
-            {"input_context": "Draft a short poetic line.",
-             "gold_response": "Neon reflections dancing in wet asphalt lanes."}
-        ]
+        raw_json_data = _make_fallback_dataset(fallback_context)
     return [
         dspy.Example(input_context=i.get("input_context", ""), output_response=i.get("gold_response", "")).with_inputs(
             "input_context") for i in raw_json_data]
@@ -392,7 +428,8 @@ def _generate_single(lm_client, agent_prompt: str, num_examples: int, doc_text: 
     )
     raw = lm_client(prompt=prompt)
     raw_text = raw[0] if isinstance(raw, list) else str(raw)
-    return extract_and_load_dataset(raw_text)
+    logger.debug("Raw LM dataset output (first 800 chars): %s", raw_text[:800])
+    return extract_and_load_dataset(raw_text, fallback_context=agent_prompt)
 
 
 def curate_dataset(lm_client, examples: list, threshold: float = 7.0, max_examples: int = 0) -> list:
@@ -801,7 +838,8 @@ def run_optimization_pipeline(agent_markdown_path: str, provider: str = "lm-stud
     with open(agent_markdown_path, "r", encoding="utf-8") as f:
         original_prompt = f.read()
 
-    backup_path = f"{agent_markdown_path}{ConfigLoader.get("file_suffixes", "backup")}"
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup_path = f"{agent_markdown_path}.{timestamp}{ConfigLoader.get("file_suffixes", "backup")}"
     with open(backup_path, "w", encoding="utf-8") as f:
         f.write(original_prompt)
 
@@ -1118,8 +1156,15 @@ def run_code_optimization_pipeline(skill_file_path: str, provider: str = "lm-stu
 
 def run_verification_pipeline(agent_markdown_path: str, provider: str = "lm-studio", model: str = "",
                               lm_client=None, registry=None,
-                              original_markdown_path: str = "") -> str:
-    """Independent QA evaluation on an optimized file to verify generalization."""
+                              original_markdown_path: str = "",
+                              force_generate_dataset: bool = False) -> str:
+    """Independent QA evaluation on an optimized file to verify generalization.
+
+    Args:
+        force_generate_dataset: If True, ignore any cached dataset on disk and
+            generate a fresh one via LM. Use this when the cached dataset is stale
+            or low-quality.
+    """
     if not os.path.exists(agent_markdown_path):
         return f"Error: Target file not found at path: {agent_markdown_path}"
 
@@ -1128,8 +1173,22 @@ def run_verification_pipeline(agent_markdown_path: str, provider: str = "lm-stud
             lm_client = _get_lm_client(provider, model, registry)
 
         generated_dataset_path = os.path.splitext(agent_markdown_path)[0] + ConfigLoader.get("file_suffixes", "generated_dataset")
-        if not os.path.exists(generated_dataset_path):
+        if force_generate_dataset or not os.path.exists(generated_dataset_path):
+            if force_generate_dataset:
+                logger.info("force_generate_dataset=True: skipping cached dataset at %s", generated_dataset_path)
+            else:
+                logger.info("No cached dataset found at %s — generating fresh test set via LM", generated_dataset_path)
             generated_dataset_path = ""
+        else:
+            logger.info("Using cached dataset at %s (set force_generate_dataset=True to regenerate)", generated_dataset_path)
+            try:
+                with open(generated_dataset_path) as _f:
+                    _cached = json.load(_f)
+                if not _cached:
+                    logger.warning("Cached dataset at %s is empty — will generate fresh", generated_dataset_path)
+                    generated_dataset_path = ""
+            except Exception:
+                pass
 
         kwargs = dict(
             agent_markdown_path=agent_markdown_path,
@@ -1538,6 +1597,15 @@ def run_section_optimization_pipeline(agents_markdown_path: str, provider: str =
                 agent_prompt=current_instructions,
                 num_examples=ConfigLoader.get("pipeline", "dataset", "num_examples"),
             )
+
+            try:
+                curated = curate_dataset(lm_client, trainset, threshold=5.0)
+                if curated:
+                    trainset = curated
+                else:
+                    logger.warning("Curation filtered all examples — using uncurated set")
+            except Exception as e:
+                logger.warning("Dataset curation failed (proceeding with uncurated set): %s", e)
 
             ext_suffix = ConfigLoader.get("file_suffixes", "generated_dataset")
             dataset_path = os.path.splitext(agents_markdown_path)[0] + ext_suffix

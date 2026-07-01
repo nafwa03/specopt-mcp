@@ -3,7 +3,7 @@
 ## Summary
 * **Dataset:** `simple_prompt_generated_dataset.json`
 * **Agent File:** `simple_prompt.md`
-* **Total Examples:** 2
+* **Total Examples:** 5
 * **Avg Hardness:** 0.0/5.0
 * **Overall Verdict:** **FAIL**
 
@@ -12,7 +12,7 @@
 ### 1. Alignment Check
 * **Status:** FAIL
 * **Score:** 0.0% (threshold: ≥80%)
-* **Detail:** 0/2 examples passed LLM judge
+* **Detail:** 0/5 examples passed LLM judge
 
 ### 2. Semantic Diversity
 * **Status:** FAIL
@@ -27,4 +27,4 @@
 ### 4. Negative Class Ratio
 * **Status:** FAIL
 * **Score:** 0.0% (threshold: ≥15%)
-* **Detail:** 0/2 adversarial cases detected
+* **Detail:** 0/5 adversarial cases detected

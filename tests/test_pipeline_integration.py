@@ -1,8 +1,10 @@
-import os
-import json
 import dspy
+import glob
+import json
+import os
 import pytest
 from unittest.mock import patch, MagicMock
+
 from core.optimizer import (
     run_optimization_pipeline,
     run_verification_pipeline,
@@ -18,14 +20,16 @@ BASE_NAME = os.path.splitext(os.path.basename(SIMPLE_PROMPT))[0]
 
 
 def _artifact_paths():
-    return [
-        SIMPLE_PROMPT + ".bak",
-        os.path.join(TEST_DATA_DIR, "optimization_report.md"),
-        os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_generated_dataset.json"),
-        os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_section_comparison.md"),
-        os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_optimized.md"),
-        os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_compiled_prompt.txt"),
-    ]
+    return (
+        glob.glob(SIMPLE_PROMPT + ".*.bak")
+        + [
+            os.path.join(TEST_DATA_DIR, "optimization_report.md"),
+            os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_generated_dataset.json"),
+            os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_section_comparison.md"),
+            os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_optimized.md"),
+            os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_compiled_prompt.txt"),
+        ]
+    )
 
 
 @pytest.fixture
@@ -112,8 +116,8 @@ def test_optimize_flow(cleanup_files):
     assert "Baseline Score" in report_content
     assert "Optimized Score" in report_content
 
-    bak_path = SIMPLE_PROMPT + ".bak"
-    assert os.path.exists(bak_path), "Backup file was not created"
+    bak_files = glob.glob(SIMPLE_PROMPT + ".*.bak")
+    assert len(bak_files) > 0, "Timestamped backup file was not created"
 
     generated_dataset_path = os.path.join(TEST_DATA_DIR, f"{BASE_NAME}_generated_dataset.json")
     assert os.path.exists(generated_dataset_path), "Generated dataset was not created"
@@ -160,8 +164,8 @@ def test_optimize_flow_with_gepa(cleanup_files):
     assert "Baseline Score" in report_content
     assert "Optimized Score" in report_content
 
-    bak_path = SIMPLE_PROMPT + ".bak"
-    assert os.path.exists(bak_path), "Backup file was not created"
+    bak_files = glob.glob(SIMPLE_PROMPT + ".*.bak")
+    assert len(bak_files) > 0, "Timestamped backup file was not created"
 
 
 def test_factory_invalid_optimizer_type():
