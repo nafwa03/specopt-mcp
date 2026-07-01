@@ -1,18 +1,20 @@
-import os
-import re
+import dspy
 import json
 import logging
-from typing import Any, Dict, List, Optional
-import dspy
+import os
+import re
 from dspy.evaluate import Evaluate
+from typing import Any, Dict, List, Optional
+
 from core.base_skill import BaseSkill
-from core.prompt_loader import PromptLoader
+from core.config_loader import ConfigLoader
 from core.optimizer import (
     DynamicAgentSignature,
     secure_universal_llm_metric,
     extract_and_load_dataset,
     generate_dataset_via_lm,
 )
+from core.prompt_loader import PromptLoader
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,8 @@ class VerificationSkill(BaseSkill):
             baseline_source, agent_markdown_path
         )
 
+        num_examples = ConfigLoader.get("pipeline", "dataset", "num_examples")
+
         with dspy.context(lm=lm_client):
             if test_set_path and os.path.exists(test_set_path):
                 with open(test_set_path, "r") as f:
@@ -77,12 +81,20 @@ class VerificationSkill(BaseSkill):
                     dspy.Example(**item).with_inputs("input_context")
                     for item in test_set_data
                 ]
-                logger.info("Reusing shared test set from %s (%d examples)", test_set_path, len(test_set))
+                logger.warning("Reusing cached test set from %s (%d examples). Delete this file or set force_generate_dataset=True to generate fresh data.", test_set_path, len(test_set))
             else:
                 test_set = generate_dataset_via_lm(
                     lm_client=lm_client,
                     agent_prompt=optimized_instructions,
-                    num_examples=5,
+                    num_examples=num_examples,
+                )
+
+            if not test_set:
+                logger.warning("Test set is empty — generating %d fallback examples from prompt", max(2, num_examples // 3))
+                test_set = generate_dataset_via_lm(
+                    lm_client=lm_client,
+                    agent_prompt=optimized_instructions,
+                    num_examples=max(2, num_examples // 3),
                 )
 
             baseline_signature = DynamicAgentSignature.with_instructions(baseline_instructions)

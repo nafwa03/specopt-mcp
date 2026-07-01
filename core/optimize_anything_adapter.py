@@ -1,10 +1,11 @@
+import difflib
+import json
+import logging
 import os
 import re
-import sys
-import json
 import subprocess
-import difflib
-import logging
+import sys
+from datetime import datetime
 from typing import Any, Callable
 
 from core.config_loader import ConfigLoader
@@ -459,10 +460,10 @@ def run_optimize_anything_pipeline(
     total_calls = result.total_metric_calls or 0
 
     # Write backup
-    bak_path = artifact_path + ".bak"
-    if not os.path.exists(bak_path):
-        with open(bak_path, "w", encoding="utf-8") as f:
-            f.write(original_content)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    bak_path = f"{artifact_path}.{timestamp}.bak"
+    with open(bak_path, "w", encoding="utf-8") as f:
+        f.write(original_content)
 
     # Write optimized content
     with open(artifact_path, "w", encoding="utf-8") as f:

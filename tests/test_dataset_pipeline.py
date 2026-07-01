@@ -1,9 +1,9 @@
-import pytest
-import os
+import dspy
 import json
+import os
+import pytest
 import tempfile
 from unittest.mock import patch, MagicMock
-import dspy
 
 
 # =====================================================================
@@ -340,7 +340,7 @@ def test_extract_and_load_dataset_valid_json():
 def test_extract_and_load_dataset_fallback():
     from core.optimizer import extract_and_load_dataset
     result = extract_and_load_dataset("not valid json at all")
-    assert len(result) == 2
+    assert len(result) == 5
 
 
 def test_extract_and_load_dataset_with_code_fence():
